@@ -70,7 +70,7 @@ func sendFrame(socket Socket, fin bool, opcode Opcode, payload []byte) error {
 		return wrapError(ErrSocket, err)
 	}
 
-	// Send MASK bit and payload length
+	// Send MASK bit and Payload length
 	n := len(payload)
 	switch {
 	case n <= 125:
@@ -104,13 +104,14 @@ func sendFrame(socket Socket, fin bool, opcode Opcode, payload []byte) error {
 		}
 	}
 
+	// Generate Mask
 	var key [4]byte
 	rand.Read(key[:])
 	if _, err := socket.Write(key[:]); err != nil {
 		return wrapError(ErrSocket, err)
 	}
 
-	// Mask the payload and send it
+	// Mask and send Payload
 	masked := make([]byte, len(payload))
 	for i := range payload {
 		masked[i] = payload[i] ^ key[i%4]
