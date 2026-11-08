@@ -1,7 +1,7 @@
 package ws
 
 type Opcode = byte
-type MessageKind struct{ b byte }
+type MessageKind struct{ opCode byte }
 
 const (
 	OPCODE_CONT  Opcode = 0x0

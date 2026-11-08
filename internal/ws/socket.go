@@ -105,19 +105,60 @@ func sendFrame(socket Socket, fin bool, opcode Opcode, payload []byte) error {
 	}
 
 	// Generate Mask
-	var key [4]byte
-	rand.Read(key[:])
-	if _, err := socket.Write(key[:]); err != nil {
+	var masks [4]byte
+	rand.Read(masks[:])
+	if _, err := socket.Write(masks[:]); err != nil {
 		return wrapError(ErrSocket, err)
 	}
 
 	// Mask and send Payload
 	masked := make([]byte, len(payload))
 	for i := range payload {
-		masked[i] = payload[i] ^ key[i%4]
+		masked[i] = payload[i] ^ masks[i%4]
 	}
 	if _, err := socket.Write(masked); err != nil {
 		return wrapError(ErrSocket, err)
+	}
+
+	return nil
+}
+
+func sendMessage(socket Socket, kind MessageKind, payload []byte, chunkLen int) error {
+	if !(kind.opCode == OPCODE_TEXT || kind.opCode == OPCODE_BIN) {
+		return fmt.Errorf("ws: invalid message kind %#x", kind.opCode)
+	}
+	if chunkLen <= 0 {
+		return fmt.Errorf("ws: chunk length must be positive, got %d", chunkLen)
+	}
+
+	first := true
+	for {
+		frameLen := len(payload)
+		if frameLen > chunkLen {
+			frameLen = chunkLen
+		}
+		finish := frameLen == len(payload)
+
+		frameOpcode := OPCODE_CONT
+		if first {
+			frameOpcode = kind.opCode
+		}
+
+		if err := sendFrame(
+			socket,
+			finish,
+			frameOpcode,
+			payload[:frameLen],
+		); err != nil {
+			return err
+		}
+
+		if finish {
+			break
+		}
+
+		payload = payload[frameLen:]
+		first = false
 	}
 
 	return nil
