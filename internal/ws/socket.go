@@ -123,43 +123,22 @@ func sendFrame(socket Socket, fin bool, opcode Opcode, payload []byte) error {
 	return nil
 }
 
-func sendMessage(socket Socket, kind MessageKind, payload []byte, chunkLen int) error {
-	if !(kind.opCode == OPCODE_TEXT || kind.opCode == OPCODE_BIN) {
-		return fmt.Errorf("ws: invalid message kind %#x", kind.opCode)
+func readFrame(socket Socket, frame Frame) error {
+	if isControl(frame.Opcode) {
+		if !frame.Fin {
+			return fmt.Errorf("ws: control frames must not be fragmented")
+		}
+		if len(frame.Payload) > 125 {
+			return fmt.Errorf("ws: control frame payload too large: %d", len(frame.Payload))
+		}
 	}
-	if chunkLen <= 0 {
-		return fmt.Errorf("ws: chunk length must be positive, got %d", chunkLen)
+
+	var header [2]byte
+	if _, err := socket.Read(header[:]); err != nil {
+		return wrapError(ErrSocket, err)
 	}
 
-	first := true
-	for {
-		frameLen := len(payload)
-		if frameLen > chunkLen {
-			frameLen = chunkLen
-		}
-		finish := frameLen == len(payload)
-
-		frameOpcode := OPCODE_CONT
-		if first {
-			frameOpcode = kind.opCode
-		}
-
-		if err := sendFrame(
-			socket,
-			finish,
-			frameOpcode,
-			payload[:frameLen],
-		); err != nil {
-			return err
-		}
-
-		if finish {
-			break
-		}
-
-		payload = payload[frameLen:]
-		first = false
-	}
+	// Parse paylod length
 
 	return nil
 }
