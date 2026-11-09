@@ -46,7 +46,15 @@ func isControl(opcode Opcode) bool {
 	return 0x8 <= opcode && opcode <= 0xF
 }
 
-func sendMessage(socket Socket, kind MessageKind, payload []byte, chunkLen int) error {
+func (m Message) Payload() []byte {
+	var payload []byte
+	for _, chunk := range m.Chunks {
+		payload = append(payload, chunk.Payload...)
+	}
+	return payload
+}
+
+func SendMessage(socket Socket, kind MessageKind, payload []byte, chunkLen int) error {
 	if !(kind.opCode == OPCODE_TEXT || kind.opCode == OPCODE_BIN) {
 		return fmt.Errorf("ws: invalid message kind %#x", kind.opCode)
 	}
@@ -67,7 +75,7 @@ func sendMessage(socket Socket, kind MessageKind, payload []byte, chunkLen int) 
 			frameOpcode = kind.opCode
 		}
 
-		if err := sendFrame(
+		if err := SendFrame(
 			socket,
 			finish,
 			frameOpcode,
@@ -87,14 +95,14 @@ func sendMessage(socket Socket, kind MessageKind, payload []byte, chunkLen int) 
 	return nil
 }
 
-func readMessage(socket Socket) (Message, error) {
+func ReadMessage(socket Socket) (Message, error) {
 	var msg Message
 	var last *MessageChunk
 	var total int
 
 	started := false
 	for {
-		frame, err := readFrame(socket)
+		frame, err := ReadFrame(socket)
 		if err != nil {
 			return Message{}, err
 		}
@@ -104,7 +112,7 @@ func readMessage(socket Socket) (Message, error) {
 			case OPCODE_CLOSE:
 				return Message{}, ErrServerClose
 			case OPCODE_PING:
-				if err := sendFrame(socket, true, OPCODE_PONG, frame.Payload); err != nil {
+				if err := SendFrame(socket, true, OPCODE_PONG, frame.Payload); err != nil {
 					return Message{}, wrapError(ErrSocket, err)
 				}
 			}

@@ -58,7 +58,7 @@ func clientHandshake(socket Socket, host []byte) error {
 	return nil
 }
 
-func sendFrame(socket Socket, fin bool, opcode Opcode, payload []byte) error {
+func SendFrame(socket Socket, fin bool, opcode Opcode, payload []byte) error {
 
 	// Send FIN and OPCODE
 	data := opcode & 0x0F
@@ -123,7 +123,7 @@ func sendFrame(socket Socket, fin bool, opcode Opcode, payload []byte) error {
 	return nil
 }
 
-func readFrame(socket Socket) (Frame, error) {
+func ReadFrame(socket Socket) (Frame, error) {
 	var header [2]byte
 	if _, err := io.ReadFull(socket, header[:]); err != nil {
 		return Frame{}, wrapError(ErrSocket, err)
