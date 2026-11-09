@@ -123,22 +123,75 @@ func sendFrame(socket Socket, fin bool, opcode Opcode, payload []byte) error {
 	return nil
 }
 
-func readFrame(socket Socket, frame Frame) error {
-	if isControl(frame.Opcode) {
-		if !frame.Fin {
-			return fmt.Errorf("ws: control frames must not be fragmented")
-		}
-		if len(frame.Payload) > 125 {
-			return fmt.Errorf("ws: control frame payload too large: %d", len(frame.Payload))
-		}
-	}
-
+func readFrame(socket Socket) (Frame, error) {
 	var header [2]byte
-	if _, err := socket.Read(header[:]); err != nil {
-		return wrapError(ErrSocket, err)
+	if _, err := io.ReadFull(socket, header[:]); err != nil {
+		return Frame{}, wrapError(ErrSocket, err)
 	}
 
-	// Parse paylod length
+	fin := header[0]&0x80 != 0
+	opcode := header[0] & 0x0F
+	lengthCode := header[1] & 0x7F
+	masked := header[1]&0x80 != 0
 
-	return nil
+	var payloadLength uint64
+	switch lengthCode {
+	case 126:
+		var extendedLength [2]byte
+		if _, err := io.ReadFull(socket, extendedLength[:]); err != nil {
+			return Frame{}, wrapError(ErrSocket, err)
+		}
+		payloadLength = uint64(binary.BigEndian.Uint16(extendedLength[:]))
+
+	case 127:
+		var extendedLength [8]byte
+		if _, err := io.ReadFull(socket, extendedLength[:]); err != nil {
+			return Frame{}, wrapError(ErrSocket, err)
+		}
+		payloadLength = binary.BigEndian.Uint64(extendedLength[:])
+
+		if payloadLength>>63 != 0 {
+			return Frame{}, fmt.Errorf("ws: invalid payload length: %d", payloadLength)
+		}
+
+	default:
+		payloadLength = uint64(lengthCode)
+	}
+
+	if isControl(opcode) {
+		if !fin {
+			return Frame{}, fmt.Errorf("ws: control frame must not be fragmented")
+		}
+		if payloadLength > 125 {
+			return Frame{}, fmt.Errorf("ws: control frame payload too large: %d", payloadLength)
+		}
+	}
+
+	const maxInt = int(^uint(0) >> 1)
+	if payloadLength > uint64(maxInt) {
+		return Frame{}, fmt.Errorf("ws: payload too large: %d", payloadLength)
+	}
+
+	var maskKey [4]byte
+	if masked {
+		if _, err := io.ReadFull(socket, maskKey[:]); err != nil {
+			return Frame{}, wrapError(ErrSocket, err)
+		}
+	}
+
+	payload := make([]byte, int(payloadLength))
+	if _, err := io.ReadFull(socket, payload); err != nil {
+		return Frame{}, wrapError(ErrSocket, err)
+	}
+	if masked {
+		for i := range payload {
+			payload[i] ^= maskKey[i%4]
+		}
+	}
+
+	return Frame{
+		Fin:     fin,
+		Opcode:  opcode,
+		Payload: payload,
+	}, nil
 }

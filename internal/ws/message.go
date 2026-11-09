@@ -36,11 +36,11 @@ type MessageChunk struct {
 	Payload []byte
 }
 
-func isControl(opcode Opcode) bool {
-	return 0x8 <= opcode && opcode <= 0xF
+func Test() bool {
+	return true
 }
 
-func IsControl(opcode Opcode) bool {
+func isControl(opcode Opcode) bool {
 	return 0x8 <= opcode && opcode <= 0xF
 }
 
