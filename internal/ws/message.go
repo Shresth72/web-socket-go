@@ -1,6 +1,11 @@
 package ws
 
-import "fmt"
+import (
+	"bytes"
+	"fmt"
+	"io"
+	"strings"
+)
 
 type Opcode = byte
 type MessageKind struct{ opCode byte }
@@ -27,23 +32,15 @@ type Frame struct {
 	Payload []byte
 }
 
-type Message struct {
-	Kind   MessageKind
-	Chunks []*MessageChunk
-}
-
 type MessageChunk struct {
 	next    *MessageChunk
 	Length  int
 	Payload []byte
 }
 
-func Test() bool {
-	return true
-}
-
-func isControl(opcode Opcode) bool {
-	return 0x8 <= opcode && opcode <= 0xF
+type Message struct {
+	Kind   MessageKind
+	Chunks []*MessageChunk
 }
 
 func (m Message) Payload() []byte {
@@ -52,6 +49,53 @@ func (m Message) Payload() []byte {
 		payload = append(payload, chunk.Payload...)
 	}
 	return payload
+}
+
+func isControl(opcode Opcode) bool {
+	return 0x8 <= opcode && opcode <= 0xF
+}
+
+func ClientHandshake(socket Socket, host string) error {
+	handshake := strings.Join([]string{
+		"GET / HTTP/1.1",
+		"Host: " + host,
+		"Upgrade: websocket",
+		"Connection: Upgrade",
+		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+		"Sec-WebSocket-Version: 13",
+		"",
+		"",
+	}, "\r\n")
+
+	if _, err := io.WriteString(socket, handshake); err != nil {
+		return err
+	}
+
+	// Read until "\r\n\r\n"
+	var buffer [1024]byte
+	complete := false
+	n := 0
+	for n < len(buffer) {
+		m, err := socket.Read(buffer[n:])
+		n += m
+		if err != nil {
+			return err
+		}
+		if bytes.Contains(buffer[:n], []byte("\r\n\r\n")) {
+			complete = true
+			break
+		}
+	}
+	if !complete {
+		return fmt.Errorf("%w: incomplete response headers", ErrClientHandshake)
+	}
+
+	response := string(buffer[:n])
+	if !strings.HasPrefix(response, "HTTP/1.1 101") {
+		return fmt.Errorf("%w: %q", ErrClientHandshake, response)
+	}
+
+	return nil
 }
 
 func SendMessage(socket Socket, kind MessageKind, payload []byte, chunkLen int) error {
@@ -75,7 +119,7 @@ func SendMessage(socket Socket, kind MessageKind, payload []byte, chunkLen int) 
 			frameOpcode = kind.opCode
 		}
 
-		if err := SendFrame(
+		if err := sendFrame(
 			socket,
 			finish,
 			frameOpcode,
@@ -102,7 +146,7 @@ func ReadMessage(socket Socket) (Message, error) {
 
 	started := false
 	for {
-		frame, err := ReadFrame(socket)
+		frame, err := readFrame(socket)
 		if err != nil {
 			return Message{}, err
 		}
@@ -112,7 +156,7 @@ func ReadMessage(socket Socket) (Message, error) {
 			case OPCODE_CLOSE:
 				return Message{}, ErrServerClose
 			case OPCODE_PING:
-				if err := SendFrame(socket, true, OPCODE_PONG, frame.Payload); err != nil {
+				if err := sendFrame(socket, true, OPCODE_PONG, frame.Payload); err != nil {
 					return Message{}, wrapError(ErrSocket, err)
 				}
 			}

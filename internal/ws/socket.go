@@ -1,13 +1,11 @@
 package ws
 
 import (
-	"bytes"
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"math"
-	"strings"
 )
 
 type Socket interface {
@@ -15,50 +13,15 @@ type Socket interface {
 	io.Writer
 }
 
-func clientHandshake(socket Socket, host []byte) error {
-	handshake := strings.Join([]string{
-		"GET / HTTP/1.1",
-		"Host: " + string(host),
-		"Upgrade: websocket",
-		"Connection: Upgrade",
-		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
-		"Sec-WebSocket-Version: 13",
-		"",
-		"",
-	}, "\r\n")
-
-	if _, err := io.WriteString(socket, handshake); err != nil {
-		return err
-	}
-
-	// Read until "\r\n\r\n"
-	var buffer [1024]byte
-	complete := false
-	n := 0
-	for n < len(buffer) {
-		m, err := socket.Read(buffer[n:])
-		n += m
-		if err != nil {
-			return err
+func sendFrame(socket Socket, fin bool, opcode Opcode, payload []byte) error {
+	if isControl(opcode) {
+		if !fin {
+			return fmt.Errorf("ws: control frame must not be fragmented")
 		}
-		if bytes.Contains(buffer[:n], []byte("\r\n\r\n")) {
-			complete = true
-			break
+		if len(payload) > 125 {
+			return fmt.Errorf("ws: control frame payload too large: %d", len(payload))
 		}
 	}
-	if !complete {
-		return fmt.Errorf("%w: incomplete response headers", ErrClientHandshake)
-	}
-
-	response := string(buffer[:n])
-	if !strings.HasPrefix(response, "HTTP/1.1 101") {
-		return fmt.Errorf("%w: %q", ErrClientHandshake, response)
-	}
-
-	return nil
-}
-
-func SendFrame(socket Socket, fin bool, opcode Opcode, payload []byte) error {
 
 	// Send FIN and OPCODE
 	data := opcode & 0x0F
@@ -123,7 +86,7 @@ func SendFrame(socket Socket, fin bool, opcode Opcode, payload []byte) error {
 	return nil
 }
 
-func ReadFrame(socket Socket) (Frame, error) {
+func readFrame(socket Socket) (Frame, error) {
 	var header [2]byte
 	if _, err := io.ReadFull(socket, header[:]); err != nil {
 		return Frame{}, wrapError(ErrSocket, err)
