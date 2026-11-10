@@ -163,7 +163,15 @@ func ClientHandshake(socket Socket, host string) error {
 	return nil
 }
 
-func SendMessage(socket Socket, kind MessageKind, payload []byte, chunkLen int) error {
+func SendClientMessage(socket Socket, kind MessageKind, payload []byte, chunkLen int) error {
+	return sendMessage(socket, kind, payload, chunkLen, true)
+}
+
+func SendServerMessage(socket Socket, kind MessageKind, payload []byte, chunkLen int) error {
+	return sendMessage(socket, kind, payload, chunkLen, false)
+}
+
+func sendMessage(socket Socket, kind MessageKind, payload []byte, chunkLen int, mask bool) error {
 	if !(kind.opCode == OPCODE_TEXT || kind.opCode == OPCODE_BIN) {
 		return fmt.Errorf("ws: invalid message kind %#x", kind.opCode)
 	}
@@ -189,6 +197,7 @@ func SendMessage(socket Socket, kind MessageKind, payload []byte, chunkLen int) 
 			finish,
 			frameOpcode,
 			payload[:frameLen],
+			mask,
 		); err != nil {
 			return err
 		}
@@ -204,7 +213,15 @@ func SendMessage(socket Socket, kind MessageKind, payload []byte, chunkLen int) 
 	return nil
 }
 
-func ReadMessage(socket Socket) (Message, error) {
+func ReadClientMessage(socket Socket) (Message, error) {
+	return readMessage(socket, true)
+}
+
+func ReadServerMessage(socket Socket) (Message, error) {
+	return readMessage(socket, false)
+}
+
+func readMessage(socket Socket, mask bool) (Message, error) {
 	var msg Message
 	var last *MessageChunk
 	var total int
@@ -221,7 +238,7 @@ func ReadMessage(socket Socket) (Message, error) {
 			case OPCODE_CLOSE:
 				return Message{}, ErrServerClose
 			case OPCODE_PING:
-				if err := sendFrame(socket, true, OPCODE_PONG, frame.Payload); err != nil {
+				if err := sendFrame(socket, true, OPCODE_PONG, frame.Payload, mask); err != nil {
 					return Message{}, wrapError(ErrSocket, err)
 				}
 			}

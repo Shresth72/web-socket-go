@@ -14,6 +14,9 @@ const (
 	HOST    = "echo.websocket.org"
 	SERVICE = "443"
 
+	LOCAL_HOST    = "127.0.0.1"
+	LOCAL_SERVICE = "9000"
+
 	DIAL_TIMEOUT = 10 * time.Second
 )
 
@@ -57,19 +60,41 @@ func NetDialEcho() {
 	}
 	defer conn.Close()
 
-	greeting, err := ws.ReadMessage(conn)
+	greeting, err := ws.ReadClientMessage(conn)
 	if err != nil {
 		log.Fatalf("read greeting: %v", err)
 	}
 	fmt.Printf("server: %s\n", greeting.Payload())
 
 	message := []byte("Hello from Go Websocket Client!")
-	if err := ws.SendMessage(conn, ws.MESSAGE_TEXT, message, 1024); err != nil {
+	if err := ws.SendClientMessage(conn, ws.MESSAGE_TEXT, message, 1024); err != nil {
 		log.Fatalf("send: %v", err)
 	}
 	fmt.Printf("client (echo): %s\n", message)
 
-	reply, err := ws.ReadMessage(conn)
+	reply, err := ws.ReadClientMessage(conn)
+	if err != nil {
+		log.Fatalf("read: %v", err)
+	}
+
+	fmt.Printf("server: %s\n", reply.Payload())
+}
+
+// NetDialTCP talks to the local server in cmd/server over plain TCP.
+func NetDialTCP() {
+	conn, err := dial(LOCAL_HOST, LOCAL_SERVICE)
+	if err != nil {
+		log.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	message := []byte("Hello from the local TCP server!")
+	if err := ws.SendClientMessage(conn, ws.MESSAGE_TEXT, message, 1024); err != nil {
+		log.Fatalf("send: %v", err)
+	}
+	fmt.Printf("client: %s\n", message)
+
+	reply, err := ws.ReadClientMessage(conn)
 	if err != nil {
 		log.Fatalf("read: %v", err)
 	}

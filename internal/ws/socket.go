@@ -13,7 +13,10 @@ type Socket interface {
 	io.Writer
 }
 
-func sendFrame(socket Socket, fin bool, opcode Opcode, payload []byte) error {
+// sendFrame writes a single frame.
+// Client-to-Server frames must be masked;
+// Server-to-Client frames must not be masked (RFC 6455 section 5.1).
+func sendFrame(socket Socket, fin bool, opcode Opcode, payload []byte, mask bool) error {
 	if isControl(opcode) {
 		if !fin {
 			return fmt.Errorf("ws: control frame must not be fragmented")
@@ -34,17 +37,20 @@ func sendFrame(socket Socket, fin bool, opcode Opcode, payload []byte) error {
 	}
 
 	// Send MASK bit and Payload length
+	maskBit := byte(0)
+	if mask {
+		maskBit = 0x80
+	}
+
 	n := len(payload)
 	switch {
 	case n <= 125:
-		data := 0x80 | byte(n)
-		if _, err := socket.Write([]byte{data}); err != nil {
+		if _, err := socket.Write([]byte{maskBit | byte(n)}); err != nil {
 			return wrapError(ErrSocket, err)
 		}
 
 	case n <= math.MaxUint16:
-		data := 0x80 | byte(126)
-		if _, err := socket.Write([]byte{data}); err != nil {
+		if _, err := socket.Write([]byte{maskBit | 126}); err != nil {
 			return wrapError(ErrSocket, err)
 		}
 
@@ -55,8 +61,7 @@ func sendFrame(socket Socket, fin bool, opcode Opcode, payload []byte) error {
 		}
 
 	default:
-		data := 0x80 | byte(127)
-		if _, err := socket.Write([]byte{data}); err != nil {
+		if _, err := socket.Write([]byte{maskBit | 127}); err != nil {
 			return wrapError(ErrSocket, err)
 		}
 
@@ -65,6 +70,13 @@ func sendFrame(socket Socket, fin bool, opcode Opcode, payload []byte) error {
 		if _, err := socket.Write(length[:]); err != nil {
 			return wrapError(ErrSocket, err)
 		}
+	}
+
+	if !mask {
+		if _, err := socket.Write(payload); err != nil {
+			return wrapError(ErrSocket, err)
+		}
+		return nil
 	}
 
 	// Generate Mask
