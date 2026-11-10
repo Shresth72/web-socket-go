@@ -2,15 +2,25 @@ package ws
 
 import (
 	"bytes"
+	"crypto/sha1"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"strings"
 )
 
+const (
+	MAX_HEADER_SIZE  = 16 << 10 // 16KiB
+	MAX_MESSAGE_SIZE = 16 << 20 // 16MiB
+
+	SEC_WEBSOCKET_KEY = "dGhlIHNhbXBsZSBub25jZQ=="             // Client
+	WEB_SOCKET_GUID   = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11" // Server
+)
+
+var headerTerminator = []byte("\r\n\r\n")
+
 type Opcode = byte
 type MessageKind struct{ opCode byte }
-
-const maxMessageSize = 16 << 20 // 16MiB
 
 const (
 	OPCODE_CONT  Opcode = 0x0
@@ -55,13 +65,78 @@ func isControl(opcode Opcode) bool {
 	return 0x8 <= opcode && opcode <= 0xF
 }
 
+// base64(SHA1(Sec-WebSocket-Key + GUID)).
+func computeSecWebsocketAccept(secWebsocketKey string) string {
+	sum := sha1.Sum([]byte(secWebsocketKey + WEB_SOCKET_GUID))
+	return base64.StdEncoding.EncodeToString(sum[:])
+}
+
+func readHeaders(socket Socket) ([]byte, error) {
+	var headers []byte
+	var b [1]byte
+
+	for {
+		if _, err := io.ReadFull(socket, b[:]); err != nil {
+			return nil, err
+		}
+
+		headers = append(headers, b[0])
+		if bytes.HasSuffix(headers, headerTerminator) {
+			return headers, nil
+		}
+
+		if len(headers) >= MAX_HEADER_SIZE {
+			return nil, fmt.Errorf("ws: header block exceeds %d bytes", MAX_HEADER_SIZE)
+		}
+	}
+}
+
+func headerValue(headers, name string) (string, bool) {
+	for _, line := range strings.Split(headers, "\r\n") {
+		key, value, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(key), name) {
+			return strings.TrimSpace(value), true
+		}
+	}
+	return "", false
+}
+
+func ServerHandshake(socket Socket) error {
+	request, err := readHeaders(socket)
+	if err != nil {
+		return wrapError(ErrProtocol, err)
+	}
+
+	secWebsocketKey, ok := headerValue(string(request), "Sec-WebSocket-Key")
+	if !ok {
+		return fmt.Errorf("%w: missing Sec-WebSocket-Key", ErrProtocol)
+	}
+
+	handshake := strings.Join([]string{
+		"HTTP/1.1 101 Switching Protocols",
+		"Upgrade: websocket",
+		"Connection: Upgrade",
+		"Sec-WebSocket-Accept: " + computeSecWebsocketAccept(secWebsocketKey),
+		"",
+		"",
+	}, "\r\n")
+
+	if _, err := io.WriteString(socket, handshake); err != nil {
+		return wrapError(ErrSocket, err)
+	}
+	return nil
+}
+
 func ClientHandshake(socket Socket, host string) error {
 	handshake := strings.Join([]string{
 		"GET / HTTP/1.1",
 		"Host: " + host,
 		"Upgrade: websocket",
 		"Connection: Upgrade",
-		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+		"Sec-WebSocket-Key: " + SEC_WEBSOCKET_KEY,
 		"Sec-WebSocket-Version: 13",
 		"",
 		"",
@@ -71,27 +146,12 @@ func ClientHandshake(socket Socket, host string) error {
 		return err
 	}
 
-	// Read until "\r\n\r\n"
-	var buffer [1024]byte
-	complete := false
-	n := 0
-	for n < len(buffer) {
-		m, err := socket.Read(buffer[n:])
-		n += m
-		if err != nil {
-			return err
-		}
-		if bytes.Contains(buffer[:n], []byte("\r\n\r\n")) {
-			complete = true
-			break
-		}
-	}
-	if !complete {
-		return fmt.Errorf("%w: incomplete response headers", ErrClientHandshake)
+	response, err := readHeaders(socket)
+	if err != nil {
+		return wrapError(ErrClientHandshake, err)
 	}
 
-	response := string(buffer[:n])
-	if !strings.HasPrefix(response, "HTTP/1.1 101") {
+	if !strings.HasPrefix(string(response), "HTTP/1.1 101") {
 		return fmt.Errorf("%w: %q", ErrClientHandshake, response)
 	}
 
@@ -164,7 +224,7 @@ func ReadMessage(socket Socket) (Message, error) {
 		}
 
 		total += len(frame.Payload)
-		if total > maxMessageSize {
+		if total > MAX_MESSAGE_SIZE {
 			return Message{}, wrapError(
 				ErrProtocol,
 				fmt.Errorf("ws: message too large than allowed limit: %d bytes", total),
