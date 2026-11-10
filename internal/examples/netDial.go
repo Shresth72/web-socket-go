@@ -61,19 +61,21 @@ func NetDialEcho() {
 	}
 	defer conn.Close()
 
-	greeting, err := ws.ReadClientMessage(conn)
+	c := ws.NewClient(conn)
+
+	greeting, err := c.ReadMessage()
 	if err != nil {
 		log.Fatalf("read greeting: %v", err)
 	}
 	fmt.Printf("server: %s\n", greeting.Payload())
 
 	message := []byte("Hello from Go Websocket Client!")
-	if err := ws.SendClientMessage(conn, ws.MESSAGE_TEXT, message, 1024); err != nil {
+	if err := c.SendMessage(ws.MESSAGE_TEXT, message, 1024); err != nil {
 		log.Fatalf("send: %v", err)
 	}
 	fmt.Printf("client (echo): %s\n", message)
 
-	reply, err := ws.ReadClientMessage(conn)
+	reply, err := c.ReadMessage()
 	if err != nil {
 		log.Fatalf("read: %v", err)
 	}
@@ -81,8 +83,6 @@ func NetDialEcho() {
 	fmt.Printf("server: %s\n", reply.Payload())
 }
 
-// NetDialTCP talks to the local server in cmd/server over plain TCP.
-// It sends a message, reads the echo, then sends PING and CLOSE frames.
 func NetDialTCP() {
 	conn, err := dial(LOCAL_HOST, LOCAL_SERVICE)
 	if err != nil {
@@ -90,48 +90,49 @@ func NetDialTCP() {
 	}
 	defer conn.Close()
 
+	c := ws.NewClient(conn)
+
 	// 1
 	message1 := []byte("Hello from the local TCP server!")
-	if err := ws.SendClientMessage(conn, ws.MESSAGE_TEXT, message1, 1024); err != nil {
+	if err := c.SendMessage(ws.MESSAGE_TEXT, message1, 1024); err != nil {
 		log.Fatalf("send: %v", err)
 	}
 	fmt.Printf("client: %s\n", message1)
 
-	reply1, err := ws.ReadClientMessage(conn)
+	reply1, err := c.ReadMessage()
 	if err != nil {
 		log.Fatalf("read: %v", err)
 	}
 	fmt.Printf("server: %s\n", reply1.Payload())
 
-	// Ping waits for the server's PONG instead of firing and forgetting.
+	// 2
 	pingPayload := []byte("ping")
-	pong, err := ws.SendPing(conn, pingPayload, true)
-	if err != nil {
+	if err := c.SendPing(pingPayload); err != nil {
 		log.Fatalf("ping: %v", err)
 	}
 	fmt.Printf("client: PING %q\n", pingPayload)
-	fmt.Printf("server: PONG %q\n", pong)
+	fmt.Printf("server: PONG %q\n", pingPayload) // RFC 6455: PONG echoes the PING payload
 
-	// 2
+	// 3
 	message2 := []byte("Hello from the local TCP server 2!")
-	if err := ws.SendClientMessage(conn, ws.MESSAGE_TEXT, message2, 1024); err != nil {
+	if err := c.SendMessage(ws.MESSAGE_TEXT, message2, 1024); err != nil {
 		log.Fatalf("send: %v", err)
 	}
 	fmt.Printf("client: %s\n", message2)
 
-	reply2, err := ws.ReadClientMessage(conn)
+	reply2, err := c.ReadMessage()
 	if err != nil {
 		log.Fatalf("read: %v", err)
 	}
 	fmt.Printf("server: %s\n", reply2.Payload())
 
-	if err := ws.SendClose(conn, []byte{0x03, 0xE8}, true); err != nil { // 1000
+	// 4
+	if err := c.SendClose([]byte{0x03, 0xE8}); err != nil { // 1000
 		log.Fatalf("close: %v", err)
 	}
 	fmt.Println("client: CLOSE 1000")
 
-	// Skips the PONG, then returns ErrServerClose on the server's CLOSE reply.
-	if _, err := ws.ReadClientMessage(conn); !errors.Is(err, ws.ErrServerClose) {
+	if _, err := c.ReadMessage(); !errors.Is(err, ws.ErrServerClose) {
 		log.Fatalf("expected CLOSE reply, got %v", err)
 	}
 	fmt.Println("server: CLOSE")

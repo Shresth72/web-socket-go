@@ -51,13 +51,14 @@ func handleConn(conn net.Conn) {
 
 	log.Printf("%s: connected", conn.RemoteAddr())
 
+	c := ws.NewServer(conn)
 	for {
 		if err := conn.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {
 			log.Printf("%s: set deadline: %v", conn.RemoteAddr(), err)
 			return
 		}
 
-		msg, err := ws.ReadServerMessage(conn)
+		msg, err := c.ReadMessage()
 		if err != nil {
 			switch {
 			case errors.Is(err, ws.ErrServerClose):
@@ -76,7 +77,7 @@ func handleConn(conn net.Conn) {
 		log.Printf("%s: received %d bytes", conn.RemoteAddr(), len(clientPayload))
 
 		serverPayload := []byte("Received your message Client!: " + string(clientPayload))
-		if err := ws.SendServerMessage(conn, msg.Kind, serverPayload, 1024); err != nil {
+		if err := c.SendMessage(msg.Kind, serverPayload, 1024); err != nil {
 			log.Printf("%s: send: %v", conn.RemoteAddr(), err)
 			return
 		}

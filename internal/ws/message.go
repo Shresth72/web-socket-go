@@ -102,14 +102,6 @@ func ClientHandshake(socket Socket, host string) error {
 	return nil
 }
 
-func SendClientMessage(socket Socket, kind MessageKind, payload []byte, chunkLen int) error {
-	return sendMessage(socket, kind, payload, chunkLen, true)
-}
-
-func SendServerMessage(socket Socket, kind MessageKind, payload []byte, chunkLen int) error {
-	return sendMessage(socket, kind, payload, chunkLen, false)
-}
-
 func sendMessage(socket Socket, kind MessageKind, payload []byte, chunkLen int, mask bool) error {
 	if !(kind.opCode == OPCODE_TEXT || kind.opCode == OPCODE_BIN) {
 		return fmt.Errorf("ws: invalid message kind %#x", kind.opCode)
@@ -150,14 +142,6 @@ func sendMessage(socket Socket, kind MessageKind, payload []byte, chunkLen int, 
 	}
 
 	return nil
-}
-
-func ReadClientMessage(socket Socket) (Message, error) {
-	return readMessage(socket, true)
-}
-
-func ReadServerMessage(socket Socket) (Message, error) {
-	return readMessage(socket, false)
 }
 
 func readMessage(socket Socket, mask bool) (Message, error) {

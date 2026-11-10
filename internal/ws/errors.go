@@ -10,6 +10,7 @@ var (
 	ErrAllocator       = ErrorKind{"ws: allocator error"}
 	ErrServerClose     = ErrorKind{"ws: server close error"}
 	ErrProtocol        = ErrorKind{"ws: protocol error"}
+	ErrUnexpectedFrame = ErrorKind{"ws: unexpected frame"}
 )
 
 func (k ErrorKind) Error() string { return k.msg }
@@ -19,6 +20,8 @@ var ErrorKinds = []ErrorKind{
 	ErrSocket,
 	ErrAllocator,
 	ErrServerClose,
+	ErrProtocol,
+	ErrUnexpectedFrame,
 }
 
 func wrapError(kind ErrorKind, cause error) error {
