@@ -71,6 +71,11 @@ func computeSecWebsocketAccept(secWebsocketKey string) string {
 	return base64.StdEncoding.EncodeToString(sum[:])
 }
 
+func validSecWebsocketKey(key string) bool {
+	raw, err := base64.StdEncoding.DecodeString(key)
+	return err == nil && len(raw) == 16
+}
+
 func readHeaders(socket Socket) ([]byte, error) {
 	var headers []byte
 	var b [1]byte
@@ -111,8 +116,8 @@ func ServerHandshake(socket Socket) error {
 	}
 
 	secWebsocketKey, ok := headerValue(string(request), "Sec-WebSocket-Key")
-	if !ok {
-		return fmt.Errorf("%w: missing Sec-WebSocket-Key", ErrProtocol)
+	if !ok || !validSecWebsocketKey(secWebsocketKey) {
+		return fmt.Errorf("%w: missing or invalid Sec-WebSocket-Key", ErrProtocol)
 	}
 
 	handshake := strings.Join([]string{
