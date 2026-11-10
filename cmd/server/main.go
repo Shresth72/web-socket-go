@@ -6,11 +6,15 @@ import (
 	"log"
 	"net"
 	"os"
+	"time"
 
 	"github.com/Shresth72/ws/internal/ws"
 )
 
-const defaultAddr = "127.0.0.1:9000"
+const (
+	defaultAddr = "127.0.0.1:9000"
+	readTimeout = 30 * time.Second
+)
 
 func main() {
 	addr := defaultAddr
@@ -48,6 +52,11 @@ func handleConn(conn net.Conn) {
 	log.Printf("%s: connected", conn.RemoteAddr())
 
 	for {
+		if err := conn.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {
+			log.Printf("%s: set deadline: %v", conn.RemoteAddr(), err)
+			return
+		}
+
 		msg, err := ws.ReadServerMessage(conn)
 		if err != nil {
 			switch {
@@ -55,6 +64,8 @@ func handleConn(conn net.Conn) {
 				log.Printf("%s: closed by client", conn.RemoteAddr())
 			case errors.Is(err, io.EOF):
 				log.Printf("%s: disconnected", conn.RemoteAddr())
+			case errors.Is(err, os.ErrDeadlineExceeded):
+				log.Printf("%s: timed out after %s", conn.RemoteAddr(), readTimeout)
 			default:
 				log.Printf("%s: read: %v", conn.RemoteAddr(), err)
 			}
@@ -64,7 +75,7 @@ func handleConn(conn net.Conn) {
 		clientPayload := msg.Payload()
 		log.Printf("%s: received %d bytes", conn.RemoteAddr(), len(clientPayload))
 
-		serverPayload := []byte("Received your message Client!")
+		serverPayload := []byte("Received your message Client!: " + string(clientPayload))
 		if err := ws.SendServerMessage(conn, msg.Kind, serverPayload, 1024); err != nil {
 			log.Printf("%s: send: %v", conn.RemoteAddr(), err)
 			return

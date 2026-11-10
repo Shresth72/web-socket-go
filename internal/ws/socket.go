@@ -170,18 +170,3 @@ func readFrame(socket Socket) (Frame, error) {
 		Payload: payload,
 	}, nil
 }
-
-func SendPing(socket Socket, payload []byte, mask bool) error {
-	return sendFrame(socket, true, OPCODE_PING, payload, mask)
-}
-
-func SendPong(socket Socket, payload []byte, mask bool) error {
-	return sendFrame(socket, true, OPCODE_PONG, payload, mask)
-}
-
-func SendClose(socket Socket, payload []byte, mask bool) error {
-	if len(payload) == 1 {
-		return fmt.Errorf("ws: close payload must be empty or at least 2 bytes")
-	}
-	return sendFrame(socket, true, OPCODE_CLOSE, payload, mask)
-}

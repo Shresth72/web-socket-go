@@ -66,3 +66,44 @@ func headerValue(headers, name string) (string, bool) {
 	}
 	return "", false
 }
+
+// Client SendFrame Utils
+func sendPingFrame(socket Socket, payload []byte, mask bool) error {
+	return sendFrame(socket, true, OPCODE_PING, payload, mask)
+}
+
+func SendPong(socket Socket, payload []byte, mask bool) error {
+	return sendFrame(socket, true, OPCODE_PONG, payload, mask)
+}
+
+func SendClose(socket Socket, payload []byte, mask bool) error {
+	if len(payload) == 1 {
+		return fmt.Errorf("ws: close payload must be empty or at least 2 bytes")
+	}
+	return sendFrame(socket, true, OPCODE_CLOSE, payload, mask)
+}
+
+func SendPing(socket Socket, payload []byte, mask bool) ([]byte, error) {
+	if err := sendPingFrame(socket, payload, mask); err != nil {
+		return nil, err
+	}
+
+	for {
+		frame, err := readFrame(socket)
+		if err != nil {
+			return nil, err
+		}
+
+		switch frame.Opcode {
+		case OPCODE_PONG:
+			return frame.Payload, nil
+		case OPCODE_PING:
+			if err := SendPong(socket, frame.Payload, mask); err != nil {
+				return nil, err
+			}
+		case OPCODE_CLOSE:
+			_ = SendClose(socket, frame.Payload, mask)
+			return nil, ErrServerClose
+		}
+	}
+}
