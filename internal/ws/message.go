@@ -175,6 +175,7 @@ func readMessage(socket Socket, mask bool) (Message, error) {
 		if isControl(frame.Opcode) {
 			switch frame.Opcode {
 			case OPCODE_CLOSE:
+				_ = sendFrame(socket, true, OPCODE_CLOSE, frame.Payload, mask)
 				return Message{}, ErrServerClose
 			case OPCODE_PING:
 				if err := sendFrame(socket, true, OPCODE_PONG, frame.Payload, mask); err != nil {
