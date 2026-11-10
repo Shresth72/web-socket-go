@@ -61,10 +61,11 @@ func handleConn(conn net.Conn) {
 			return
 		}
 
-		payload := msg.Payload()
-		log.Printf("%s: received %d bytes", conn.RemoteAddr(), len(payload))
+		clientPayload := msg.Payload()
+		log.Printf("%s: received %d bytes", conn.RemoteAddr(), len(clientPayload))
 
-		if err := ws.SendServerMessage(conn, msg.Kind, payload, 1024); err != nil {
+		serverPayload := []byte("Received your message Client!")
+		if err := ws.SendServerMessage(conn, msg.Kind, serverPayload, 1024); err != nil {
 			log.Printf("%s: send: %v", conn.RemoteAddr(), err)
 			return
 		}
