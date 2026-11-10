@@ -5,5 +5,7 @@ import (
 )
 
 func main() {
+	examples.NetDialTCP()
+	println()
 	examples.NetDialEcho()
 }
