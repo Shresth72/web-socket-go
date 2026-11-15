@@ -33,7 +33,7 @@ func (c *Conn) SendPing(payload []byte) error {
 		return err
 	}
 
-	frame, err := readFrame(c)
+	frame, err := readFrame(c, !c.mask)
 	if err != nil {
 		return err
 	}

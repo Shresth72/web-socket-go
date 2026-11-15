@@ -10,8 +10,7 @@ const (
 	MAX_HEADER_SIZE  = 16 << 10 // 16KiB
 	MAX_MESSAGE_SIZE = 16 << 20 // 16MiB
 
-	SEC_WEBSOCKET_KEY = "dGhlIHNhbXBsZSBub25jZQ=="             // Client
-	WEB_SOCKET_GUID   = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11" // Server
+	WEB_SOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11" // Server
 )
 
 type Opcode = byte
@@ -75,19 +74,24 @@ func ServerHandshake(socket Socket) error {
 }
 
 func ClientHandshake(socket Socket, host string) error {
+	key, err := newSecWebsocketKey()
+	if err != nil {
+		return wrapError(ErrClientHandshake, err)
+	}
+
 	handshake := strings.Join([]string{
 		"GET / HTTP/1.1",
 		"Host: " + host,
 		"Upgrade: websocket",
 		"Connection: Upgrade",
-		"Sec-WebSocket-Key: " + SEC_WEBSOCKET_KEY,
+		"Sec-WebSocket-Key: " + key,
 		"Sec-WebSocket-Version: 13",
 		"",
 		"",
 	}, "\r\n")
 
 	if _, err := io.WriteString(socket, handshake); err != nil {
-		return err
+		return wrapError(ErrSocket, err)
 	}
 
 	response, err := readHeaders(socket)
@@ -95,8 +99,27 @@ func ClientHandshake(socket Socket, host string) error {
 		return wrapError(ErrClientHandshake, err)
 	}
 
-	if !strings.HasPrefix(string(response), "HTTP/1.1 101") {
-		return fmt.Errorf("%w: %q", ErrClientHandshake, response)
+	headers := string(response)
+	if !strings.HasPrefix(headers, "HTTP/1.1 101") {
+		return fmt.Errorf("%w: %q", ErrClientHandshake, headers)
+	}
+
+	if !headerHasToken(headers, "Upgrade", "websocket") {
+		return fmt.Errorf("%w: missing Upgrade: websocket", ErrClientHandshake)
+	}
+	if !headerHasToken(headers, "Connection", "Upgrade") {
+		return fmt.Errorf("%w: missing Connection: Upgrade", ErrClientHandshake)
+	}
+
+	accept, ok := headerValue(headers, "Sec-WebSocket-Accept")
+	if !ok {
+		return fmt.Errorf("%w: missing Sec-WebSocket-Accept", ErrClientHandshake)
+	}
+	if expected := computeSecWebsocketAccept(key); accept != expected {
+		return fmt.Errorf(
+			"%w: Sec-WebSocket-Accept %q, want %q",
+			ErrClientHandshake, accept, expected,
+		)
 	}
 
 	return nil
@@ -151,7 +174,7 @@ func readMessage(socket Socket, mask bool) (Message, error) {
 
 	started := false
 	for {
-		frame, err := readFrame(socket)
+		frame, err := readFrame(socket, !mask)
 		if err != nil {
 			return Message{}, err
 		}

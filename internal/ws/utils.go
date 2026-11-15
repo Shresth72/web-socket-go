@@ -2,6 +2,7 @@ package ws
 
 import (
 	"bytes"
+	"crypto/rand"
 	"crypto/sha1"
 	"encoding/base64"
 	"fmt"
@@ -27,6 +28,15 @@ func isControl(opcode Opcode) bool {
 func computeSecWebsocketAccept(secWebsocketKey string) string {
 	sum := sha1.Sum([]byte(secWebsocketKey + WEB_SOCKET_GUID))
 	return base64.StdEncoding.EncodeToString(sum[:])
+}
+
+// Random Sec-WebSocket-Key (RFC 6455 section 4.1).
+func newSecWebsocketKey() (string, error) {
+	var key [16]byte
+	if _, err := rand.Read(key[:]); err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(key[:]), nil
 }
 
 func validSecWebsocketKey(key string) bool {
@@ -65,4 +75,17 @@ func headerValue(headers, name string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func headerHasToken(headers, name, token string) bool {
+	value, ok := headerValue(headers, name)
+	if !ok {
+		return false
+	}
+	for _, part := range strings.Split(value, ",") {
+		if strings.EqualFold(strings.TrimSpace(part), token) {
+			return true
+		}
+	}
+	return false
 }

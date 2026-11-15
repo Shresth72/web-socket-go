@@ -98,16 +98,36 @@ func sendFrame(socket Socket, fin bool, opcode Opcode, payload []byte, mask bool
 	return nil
 }
 
-func readFrame(socket Socket) (Frame, error) {
+func readFrame(socket Socket, wantMasked bool) (Frame, error) {
 	var header [2]byte
 	if _, err := io.ReadFull(socket, header[:]); err != nil {
 		return Frame{}, wrapError(ErrSocket, err)
 	}
 
 	fin := header[0]&0x80 != 0
+	rsv := header[0] & 0x70
 	opcode := header[0] & 0x0F
 	lengthCode := header[1] & 0x7F
 	masked := header[1]&0x80 != 0
+
+	// RSV1-3 must be zero (RFC 6455 section 5.2).
+	if rsv != 0 {
+		return Frame{}, fmt.Errorf("%w: reserved bits set: %#x", ErrProtocol, rsv)
+	}
+
+	// Allow defined OpCodes (RFC 6455 section 5.2).
+	switch opcode {
+	case OPCODE_CONT, OPCODE_TEXT, OPCODE_BIN, OPCODE_CLOSE, OPCODE_PING, OPCODE_PONG:
+	default:
+		return Frame{}, fmt.Errorf("%w: reserved opcode %#x", ErrProtocol, opcode)
+	}
+
+	if masked != wantMasked {
+		if wantMasked {
+			return Frame{}, fmt.Errorf("%w: peer sent an unmasked frame", ErrProtocol)
+		}
+		return Frame{}, fmt.Errorf("%w: peer sent a masked frame", ErrProtocol)
+	}
 
 	var payloadLength uint64
 	switch lengthCode {
@@ -142,9 +162,11 @@ func readFrame(socket Socket) (Frame, error) {
 		}
 	}
 
-	const maxInt = int(^uint(0) >> 1)
-	if payloadLength > uint64(maxInt) {
-		return Frame{}, fmt.Errorf("ws: payload too large: %d", payloadLength)
+	if payloadLength > MAX_MESSAGE_SIZE {
+		return Frame{}, fmt.Errorf(
+			"%w: frame payload of %d bytes exceeds the %d byte limit",
+			ErrProtocol, payloadLength, MAX_MESSAGE_SIZE,
+		)
 	}
 
 	var maskKey [4]byte
